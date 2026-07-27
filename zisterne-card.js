@@ -29,6 +29,7 @@ class ZisterneCard extends HTMLElement {
       water_color: '#3b82f6',
       animations: true,
       waves: true,
+      wave_speed: 8, // Dauer eines Wellendurchlaufs in Sekunden (größer = ruhiger)
       roundness: '16px',
       shadow: true,
       show_liter: true,
@@ -156,6 +157,7 @@ class ZisterneCard extends HTMLElement {
     const isAnimated = this._config.animations !== false;
     const hasWaves = this._config.waves !== false;
     const hasShadow = this._config.shadow !== false;
+    const waveSpeed = Number(this._config.wave_speed) > 0 ? Number(this._config.wave_speed) : 8;
 
     // Diagnose: Status aller konfigurierten Entitäten sammeln
     const checks = [];
@@ -290,7 +292,10 @@ class ZisterneCard extends HTMLElement {
         top: 0;
         left: 0;
         fill: ${waterColor};
-        animation: wave-movement ${isAnimated ? '6s' : '0s'} linear infinite;
+        will-change: transform;
+        backface-visibility: hidden;
+        transform: translateZ(0);
+        animation: ${isAnimated ? `wave-movement ${waveSpeed}s linear infinite` : 'none'};
       }
       .percentage-label {
         position: absolute;
@@ -417,9 +422,8 @@ class ZisterneCard extends HTMLElement {
         white-space: nowrap;
       }
       @keyframes wave-movement {
-        0% { transform: translate3d(0, 0, 0); }
-        50% { transform: translate3d(-25%, 2px, 0); }
-        100% { transform: translate3d(-50%, 0, 0); }
+        from { transform: translate3d(0, 0, 0); }
+        to   { transform: translate3d(-50%, 0, 0); }
       }
     `;
 
@@ -472,8 +476,8 @@ class ZisterneCard extends HTMLElement {
               <div class="water-column">
                 ${hasWaves && finalPercent > 0 && finalPercent < 100 ? `
                   <div class="wave-container">
-                    <svg class="wave-svg" viewBox="0 0 1200 120" preserveAspectRatio="none">
-                      <path d="M0,60 C150,100 350,20 500,60 C650,100 850,20 1000,60 C1150,100 1350,20 1500,60 L1500,120 L0,120 Z"></path>
+                    <svg class="wave-svg" viewBox="0 0 1000 120" preserveAspectRatio="none">
+                      <path d="M0,60 q62.5,-30 125,0 t125,0 t125,0 t125,0 t125,0 t125,0 t125,0 t125,0 L1000,120 L0,120 Z"></path>
                     </svg>
                   </div>
                 ` : ''}
