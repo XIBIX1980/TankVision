@@ -259,6 +259,48 @@ class ZisterneCard extends HTMLElement {
         display: flex;
         align-items: flex-end;
       }
+      .sensor-mount {
+        position: absolute;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 5;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+        pointer-events: none;
+      }
+      .sensor-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background-color: rgba(15, 23, 42, 0.9);
+        border: 1px solid #475569;
+        border-radius: 8px;
+        padding: 4px 9px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+      }
+      .sensor-head svg {
+        width: 16px;
+        height: 16px;
+        color: #60a5fa;
+        flex-shrink: 0;
+      }
+      .sensor-distance-value {
+        font-size: 12px;
+        font-weight: 700;
+        color: #e2e8f0;
+        font-family: monospace;
+        white-space: nowrap;
+      }
+      .sensor-pulse {
+        width: 3px;
+        height: 16px;
+        border-radius: 2px;
+        background: linear-gradient(to bottom, rgba(96, 165, 250, 0.7), rgba(96, 165, 250, 0));
+        ${isAnimated ? 'animation: sensor-ping 2s ease-in-out infinite;' : ''}
+      }
       .water-column {
         width: 100%;
         position: relative;
@@ -425,6 +467,10 @@ class ZisterneCard extends HTMLElement {
         from { transform: translate3d(0, 0, 0); }
         to   { transform: translate3d(-50%, 0, 0); }
       }
+      @keyframes sensor-ping {
+        0%, 100% { opacity: 0.35; }
+        50% { opacity: 1; }
+      }
     `;
 
     // Diagnose-HTML aufbauen (nur wenn es ein Problem gibt)
@@ -473,6 +519,20 @@ class ZisterneCard extends HTMLElement {
         <div class="card-content">
           <div class="vessel-area">
             <div class="tank-vessel">
+              ${sensorDistanceId ? `
+                <div class="sensor-mount">
+                  <div class="sensor-head">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="6" y="3" width="12" height="7" rx="1.5"></rect>
+                      <path d="M9 6h6"></path>
+                      <path d="M8.5 13.5c2 1.6 5 1.6 7 0"></path>
+                      <path d="M7 16.5c3 2.2 7 2.2 10 0"></path>
+                    </svg>
+                    <span class="sensor-distance-value">${finalDistance.toLocaleString()} ${this._config.unit_distance}</span>
+                  </div>
+                  <div class="sensor-pulse"></div>
+                </div>
+              ` : ''}
               <div class="water-column">
                 ${hasWaves && finalPercent > 0 && finalPercent < 100 ? `
                   <div class="wave-container">
@@ -506,12 +566,6 @@ class ZisterneCard extends HTMLElement {
 
             <div class="sensor-mapping-box">
               <div class="mapping-title">Sensoren</div>
-              ${sensorDistanceId ? `
-                <div class="mapping-row">
-                  <span class="mapping-label">${t.distance}</span>
-                  <span class="mapping-value">${finalDistance} ${this._config.unit_distance}</span>
-                </div>
-              ` : ''}
               <div class="mapping-row">
                 <span class="mapping-label">${t.max_volume}</span>
                 <span class="mapping-value">${maxVolumeVal.toLocaleString()} ${this._config.unit_liter}</span>
@@ -531,6 +585,138 @@ class ZisterneCard extends HTMLElement {
   getCardSize() {
     return 3;
   }
+
+  // Liefert das GUI-Editor-Element (blendet "Visueller Editor nicht unterstützt" aus)
+  static getConfigElement() {
+    return document.createElement('zisterne-card-editor');
+  }
+
+  // Standard-Konfiguration, wenn die Karte über die Oberfläche hinzugefügt wird
+  static getStubConfig() {
+    return {
+      title: 'Regenwasser-Zisterne',
+      fill_percent: '',
+      fill_liter: '',
+      max_volume: '',
+      sensor_distance: '',
+      cistern_height: 200,
+      wave_speed: 8,
+      water_color: '#3b82f6',
+      animations: true,
+      waves: true
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Konfigurations-Editor (GUI) – nutzt das eingebaute ha-form von Home Assistant,
+// damit es genauso aussieht/funktioniert wie bei anderen Karten (Dropdowns usw.)
+// ---------------------------------------------------------------------------
+
+// Beschriftungen der Formularfelder (Deutsch)
+const ZISTERNE_LABELS = {
+  title: 'Titel',
+  fill_percent: 'Füllstand-Sensor (%)',
+  fill_liter: 'Füllmengen-Sensor (Liter)',
+  max_volume: 'Max-Volumen-Sensor (Liter)',
+  sensor_distance: 'Abstands-Sensor (cm)',
+  cistern_height: 'Zisternenhöhe (cm)',
+  wave_speed: 'Wellen-Tempo (Sekunden)',
+  water_color: 'Wasserfarbe (Hex, z. B. #3b82f6)',
+  animations: 'Animationen',
+  waves: 'Wellen anzeigen',
+  shadow: 'Schatten',
+  show_percent: 'Prozent anzeigen',
+  show_liter: 'Liter anzeigen',
+  show_diagnostics: 'Diagnose-Hinweis anzeigen'
+};
+
+// Hilfetexte unter einzelnen Feldern
+const ZISTERNE_HELPERS = {
+  fill_percent: 'Beste Quelle. Wenn gesetzt, wird direkt dieser Prozentwert verwendet.',
+  max_volume: 'Sensor ODER feste Zahl (feste Zahl nur per YAML).',
+  cistern_height: 'Nur nötig, wenn du ausschließlich den Abstands-Sensor nutzt.'
+};
+
+// Aufbau des Formulars (Reihenfolge = Anzeige-Reihenfolge)
+const ZISTERNE_SCHEMA = [
+  { name: 'title', selector: { text: {} } },
+  { name: 'fill_percent', selector: { entity: { filter: [{ domain: 'sensor' }] } } },
+  { name: 'fill_liter', selector: { entity: { filter: [{ domain: 'sensor' }] } } },
+  { name: 'max_volume', selector: { entity: { filter: [{ domain: 'sensor' }] } } },
+  { name: 'sensor_distance', selector: { entity: { filter: [{ domain: 'sensor' }] } } },
+  {
+    name: 'cistern_height',
+    selector: { number: { min: 1, max: 1000, mode: 'box', unit_of_measurement: 'cm' } }
+  },
+  {
+    name: 'wave_speed',
+    selector: { number: { min: 1, max: 60, mode: 'box', unit_of_measurement: 's' } }
+  },
+  { name: 'water_color', selector: { text: {} } },
+  {
+    type: 'grid',
+    name: '',
+    schema: [
+      { name: 'animations', selector: { boolean: {} } },
+      { name: 'waves', selector: { boolean: {} } },
+      { name: 'shadow', selector: { boolean: {} } },
+      { name: 'show_percent', selector: { boolean: {} } },
+      { name: 'show_liter', selector: { boolean: {} } },
+      { name: 'show_diagnostics', selector: { boolean: {} } }
+    ]
+  }
+];
+
+class ZisterneCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+    this._config = {};
+  }
+
+  // Home Assistant übergibt die aktuelle Konfiguration
+  setConfig(config) {
+    this._config = { ...config };
+    this._render();
+  }
+
+  // Home Assistant übergibt das hass-Objekt (für die Entitäten-Dropdowns nötig)
+  set hass(hass) {
+    this._hass = hass;
+    if (this._form) this._form.hass = hass;
+  }
+
+  _render() {
+    if (!this.shadowRoot) return;
+
+    // ha-form nur einmal anlegen und danach nur aktualisieren
+    if (!this._form) {
+      this._form = document.createElement('ha-form');
+      this._form.computeLabel = (schema) => ZISTERNE_LABELS[schema.name] || schema.name;
+      this._form.computeHelper = (schema) => ZISTERNE_HELPERS[schema.name] || '';
+      this._form.addEventListener('value-changed', (ev) => {
+        ev.stopPropagation();
+        // Alte Werte behalten und mit den neuen aus dem Formular überschreiben
+        const newConfig = { ...this._config, ...ev.detail.value };
+        this._config = newConfig;
+        this.dispatchEvent(new CustomEvent('config-changed', {
+          detail: { config: newConfig },
+          bubbles: true,
+          composed: true
+        }));
+      });
+      this.shadowRoot.appendChild(this._form);
+    }
+
+    this._form.schema = ZISTERNE_SCHEMA;
+    this._form.data = this._config;
+    if (this._hass) this._form.hass = this._hass;
+  }
+}
+
+if (!customElements.get('zisterne-card-editor')) {
+  customElements.define('zisterne-card-editor', ZisterneCardEditor);
 }
 
 // Karte unter beiden Namen registrieren, damit sowohl
@@ -547,6 +733,6 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'zisterne-card',
   name: 'Zisterne / TankVision Card',
-  description: 'Füllstandsanzeige für Zisterne oder Tank',
-  preview: false
+  description: 'Füllstandsanzeige für Zisterne oder Tank – mit grafischem Editor',
+  preview: true
 });
