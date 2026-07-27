@@ -1,8 +1,17 @@
 /**
- * Regenwasserzisterne Custom Card für Home Assistant
- * 
- * Diese Datei kann direkt nach 'config/www/zisterne-card.js' kopiert 
+ * Zisterne / TankVision Custom Card für Home Assistant
+ *
+ * Diese Datei kann direkt nach 'config/www/zisterne-card.js' kopiert
  * und als Lovelace-Ressource registriert werden (/local/zisterne-card.js).
+ *
+ * Verwendbar als:
+ *   type: custom:zisterne-card
+ *   oder
+ *   type: custom:tankvision-card
+ *
+ * WICHTIG: Die angegebenen Sensor-Namen (z. B. sensor.zisterne_abstand_us)
+ * müssen EXAKT so heißen wie in Home Assistant unter
+ * Entwicklerwerkzeuge -> Zustände. Sonst zeigt die Karte "Fallback".
  */
 
 class ZisterneCard extends HTMLElement {
@@ -24,6 +33,7 @@ class ZisterneCard extends HTMLElement {
       shadow: true,
       show_liter: true,
       show_percent: true,
+      show_diagnostics: true, // roten Hinweis anzeigen, wenn ein Sensor fehlt
       unit_liter: 'L',
       unit_percent: '%',
       unit_distance: 'cm',
@@ -38,42 +48,95 @@ class ZisterneCard extends HTMLElement {
     this.render();
   }
 
+  /**
+   * Hilfsfunktion: Liest einen Zahlenwert sauber aus einer Entität.
+   * Gibt null zurück, wenn die Entität fehlt oder keinen gültigen Zahlenwert hat
+   * (z. B. "unavailable", "unknown", leer oder Text).
+   */
+  _getNum(id) {
+    if (!id || typeof id !== 'string') return null;
+    const st = this._hass.states[id];
+    if (!st) return null;
+    const s = st.state;
+    if (s === 'unavailable' || s === 'unknown' || s === '' || s === null || s === undefined) {
+      return null;
+    }
+    const n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  }
+
+  /**
+   * Hilfsfunktion: Prüft den Status einer Entität für die Diagnose-Anzeige.
+   */
+  _checkEntity(label, id) {
+    if (!id || typeof id !== 'string') return null;
+    const st = this._hass.states[id];
+    let status;
+    let ok = false;
+    if (!st) {
+      status = 'nicht gefunden';
+    } else if (st.state === 'unavailable' || st.state === 'unknown' || st.state === '') {
+      status = st.state || 'leer';
+    } else if (isNaN(parseFloat(st.state))) {
+      status = 'kein Zahlenwert';
+    } else {
+      status = 'OK (' + st.state + ')';
+      ok = true;
+    }
+    return { label, id, status, ok };
+  }
+
   render() {
     if (!this._hass || !this._config) return;
 
-    // Entitäten auflösen
+    // Entitäten auflösen (unterstützt sowohl entities: {...} als auch flache Schreibweise)
     const sensorDistanceId = this._config.entities?.sensor_distance || this._config.sensor_distance;
-    const maxVolumeId = this._config.entities?.max_volume || this._config.max_volume;
     const fillLiterId = this._config.entities?.fill_liter || this._config.fill_liter;
     const fillPercentId = this._config.entities?.fill_percent || this._config.fill_percent;
 
-    // Werte aus HA holen
-    const distanceState = sensorDistanceId ? this._hass.states[sensorDistanceId] : null;
-    const maxVolumeState = maxVolumeId ? this._hass.states[maxVolumeId] : null;
-    const fillLiterState = fillLiterId ? this._hass.states[fillLiterId] : null;
-    const fillPercentState = fillPercentId ? this._hass.states[fillPercentId] : null;
+    // max_volume darf eine ZAHL (z. B. 5000) ODER ein Sensor-Name sein.
+    const maxVolumeConfig = this._config.entities?.max_volume ?? this._config.max_volume;
+    let maxVolumeVal = 5000;
+    if (typeof maxVolumeConfig === 'number') {
+      maxVolumeVal = maxVolumeConfig;
+    } else if (typeof maxVolumeConfig === 'string') {
+      const v = this._getNum(maxVolumeConfig);
+      if (v !== null) maxVolumeVal = v;
+    }
 
-    const distanceVal = distanceState ? parseFloat(distanceState.state) : null;
-    const maxVolumeVal = maxVolumeState ? parseFloat(maxVolumeState.state) : 5000;
-    const fillLiterVal = fillLiterState ? parseFloat(fillLiterState.state) : null;
-    const fillPercentVal = fillPercentState ? parseFloat(fillPercentState.state) : null;
+    // cistern_height darf ebenfalls Zahl oder Sensor sein.
+    const cisternHeightConfig = this._config.cistern_height;
+    let cisternHeight = 200;
+    if (typeof cisternHeightConfig === 'number') {
+      cisternHeight = cisternHeightConfig;
+    } else if (typeof cisternHeightConfig === 'string') {
+      const v = this._getNum(cisternHeightConfig);
+      if (v !== null) cisternHeight = v;
+    }
 
-    const cisternHeight = this._config.cistern_height;
+    // Zahlenwerte sauber auslesen
+    const distanceVal = this._getNum(sensorDistanceId);
+    const fillLiterVal = this._getNum(fillLiterId);
+    const fillPercentVal = this._getNum(fillPercentId);
 
-    // Prozent berechnen
+    // Prozent berechnen (Priorität: Prozent-Sensor -> Liter-Sensor -> Abstand-Sensor -> Fallback)
     let percent = 0;
     let dataSource = 'Fallback (50%)';
+    let isFallback = true;
 
-    if (fillPercentVal !== null && !isNaN(fillPercentVal)) {
+    if (fillPercentVal !== null) {
       percent = fillPercentVal;
       dataSource = 'Direkter Prozent-Sensor';
-    } else if (fillLiterVal !== null && !isNaN(fillLiterVal)) {
+      isFallback = false;
+    } else if (fillLiterVal !== null) {
       percent = (fillLiterVal / maxVolumeVal) * 100;
       dataSource = 'Berechnet aus Litern / Max. Volumen';
-    } else if (distanceVal !== null && !isNaN(distanceVal)) {
+      isFallback = false;
+    } else if (distanceVal !== null) {
       const waterHeight = Math.max(0, cisternHeight - distanceVal);
       percent = (waterHeight / cisternHeight) * 100;
       dataSource = 'Berechnet aus Sensorabstand';
+      isFallback = false;
     } else {
       percent = 50;
     }
@@ -94,6 +157,20 @@ class ZisterneCard extends HTMLElement {
     const hasWaves = this._config.waves !== false;
     const hasShadow = this._config.shadow !== false;
 
+    // Diagnose: Status aller konfigurierten Entitäten sammeln
+    const checks = [];
+    const cDist = this._checkEntity(t.distance, sensorDistanceId);
+    const cLit = this._checkEntity(t.liter, fillLiterId);
+    const cPct = this._checkEntity(t.percent, fillPercentId);
+    if (cDist) checks.push(cDist);
+    if (cLit) checks.push(cLit);
+    if (cPct) checks.push(cPct);
+    const hasProblem = isFallback || checks.some(c => !c.ok);
+    const showDiag = this._config.show_diagnostics !== false && hasProblem;
+
+    // Verbindungs-Badge: grün wenn Daten vorhanden, rot bei Fallback
+    const connected = !isFallback;
+
     // CSS Styling
     const style = `
       :host {
@@ -113,7 +190,7 @@ class ZisterneCard extends HTMLElement {
       }
       .card-header {
         padding: 16px 24px;
-        border-b: 1px solid #334155;
+        border-bottom: 1px solid #334155;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -129,9 +206,9 @@ class ZisterneCard extends HTMLElement {
       }
       .status-badge {
         padding: 2px 8px;
-        background-color: rgba(16, 185, 129, 0.1);
-        border: 1px solid rgba(16, 185, 129, 0.2);
-        color: #10b981;
+        background-color: ${connected ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)'};
+        border: 1px solid ${connected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.3)'};
+        color: ${connected ? '#10b981' : '#ef4444'};
         font-size: 10px;
         font-weight: bold;
         text-transform: uppercase;
@@ -144,7 +221,7 @@ class ZisterneCard extends HTMLElement {
         width: 6px;
         height: 6px;
         border-radius: 50%;
-        background-color: #10b981;
+        background-color: ${connected ? '#10b981' : '#ef4444'};
       }
       .card-content {
         padding: 24px;
@@ -235,7 +312,7 @@ class ZisterneCard extends HTMLElement {
       }
       .metric-grid {
         display: grid;
-        grid-template-cols: 1fr 1fr;
+        grid-template-columns: 1fr 1fr;
         gap: 12px;
       }
       .metric-box {
@@ -295,12 +372,84 @@ class ZisterneCard extends HTMLElement {
         color: #64748b;
         margin-top: 8px;
       }
+      .diag-box {
+        margin: 0 24px 24px 24px;
+        background-color: rgba(239, 68, 68, 0.08);
+        border: 1px solid rgba(239, 68, 68, 0.35);
+        border-radius: 12px;
+        padding: 14px;
+      }
+      .diag-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: #fca5a5;
+        margin: 0 0 8px 0;
+      }
+      .diag-hint {
+        font-size: 11px;
+        color: #fca5a5;
+        margin: 0 0 10px 0;
+        line-height: 1.4;
+      }
+      .diag-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        font-family: monospace;
+        padding: 5px 0;
+        border-bottom: 1px solid rgba(239, 68, 68, 0.15);
+      }
+      .diag-row:last-child {
+        border-bottom: none;
+      }
+      .diag-id {
+        color: #e2e8f0;
+        word-break: break-all;
+      }
+      .diag-status-ok {
+        color: #10b981;
+        white-space: nowrap;
+      }
+      .diag-status-bad {
+        color: #ef4444;
+        white-space: nowrap;
+      }
       @keyframes wave-movement {
         0% { transform: translate3d(0, 0, 0); }
         50% { transform: translate3d(-25%, 2px, 0); }
         100% { transform: translate3d(-50%, 0, 0); }
       }
     `;
+
+    // Diagnose-HTML aufbauen (nur wenn es ein Problem gibt)
+    let diagHtml = '';
+    if (showDiag) {
+      const rows = checks.map(c => `
+        <div class="diag-row">
+          <span class="diag-id">${c.label}: ${c.id}</span>
+          <span class="${c.ok ? 'diag-status-ok' : 'diag-status-bad'}">${c.status}</span>
+        </div>
+      `).join('');
+
+      const noEntities = checks.length === 0
+        ? '<div class="diag-hint">Es ist gar kein Sensor konfiguriert. Trage z. B. <b>fill_percent</b>, <b>fill_liter</b> oder <b>sensor_distance</b> in die YAML ein.</div>'
+        : '';
+
+      diagHtml = `
+        <div class="diag-box">
+          <div class="diag-title">⚠️ Keine gültigen Sensordaten – es werden Notwerte (50 %) angezeigt</div>
+          <div class="diag-hint">
+            Prüfe die Namen unter <b>Entwicklerwerkzeuge → Zustände</b>. Sie müssen exakt übereinstimmen
+            (Groß-/Kleinschreibung, Unterstriche). Status "nicht gefunden" = Name falsch.
+            Status "unavailable/unknown" = Gerät offline.
+          </div>
+          ${noEntities}
+          ${rows}
+        </div>
+      `;
+    }
 
     this.shadowRoot.innerHTML = `
       <style>${style}</style>
@@ -314,7 +463,7 @@ class ZisterneCard extends HTMLElement {
           </div>
           <div class="status-badge">
             <span class="status-dot"></span>
-            ${t.connected}
+            ${connected ? t.connected : 'Kein Signal'}
           </div>
         </div>
         <div class="card-content">
@@ -334,7 +483,7 @@ class ZisterneCard extends HTMLElement {
               </div>
             </div>
           </div>
-          
+
           <div class="stats-panel">
             <div class="metric-grid">
               ${this._config.show_percent !== false ? `
@@ -369,6 +518,7 @@ class ZisterneCard extends HTMLElement {
             </div>
           </div>
         </div>
+        ${diagHtml}
       </div>
     `;
   }
@@ -379,4 +529,20 @@ class ZisterneCard extends HTMLElement {
   }
 }
 
-customElements.define('zisterne-card', ZisterneCard);
+// Karte unter beiden Namen registrieren, damit sowohl
+// custom:zisterne-card als auch custom:tankvision-card funktionieren.
+if (!customElements.get('zisterne-card')) {
+  customElements.define('zisterne-card', ZisterneCard);
+}
+if (!customElements.get('tankvision-card')) {
+  customElements.define('tankvision-card', ZisterneCard);
+}
+
+// In der "Karte hinzufügen"-Auswahl von Home Assistant anzeigen
+window.customCards = window.customCards || [];
+window.customCards.push({
+  type: 'zisterne-card',
+  name: 'Zisterne / TankVision Card',
+  description: 'Füllstandsanzeige für Zisterne oder Tank',
+  preview: false
+});
