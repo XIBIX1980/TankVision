@@ -173,12 +173,12 @@ class ZisterneCard extends HTMLElement {
     const dur = (waveSpeed * 0.7).toFixed(1);
 
     // Wasseroberfläche: feste Grundhöhe (y≈200), Füllstand wird per translateY gesetzt.
-    const fillA = 'M40,198 C110,188 190,208 240,200 C300,192 340,206 360,202 L360,600 L40,600 Z';
-    const fillB = 'M40,202 C110,206 190,190 240,200 C300,208 340,192 360,198 L360,600 L40,600 Z';
-    const rimA = 'M40,198 C110,188 190,208 240,200 C300,192 340,206 360,202';
-    const rimB = 'M40,202 C110,206 190,190 240,200 C300,208 340,192 360,198';
-    const hiA = 'M40,201 C110,191 190,211 240,203 C300,195 340,209 360,205';
-    const hiB = 'M40,205 C110,209 190,193 240,203 C300,211 340,195 360,201';
+    const fillA = 'M40,196 C110,176 190,216 240,200 C300,184 340,212 360,204 L360,600 L40,600 Z';
+    const fillB = 'M40,204 C110,212 190,180 240,200 C300,216 340,184 360,196 L360,600 L40,600 Z';
+    const rimA = 'M40,196 C110,176 190,216 240,200 C300,184 340,212 360,204';
+    const rimB = 'M40,204 C110,212 190,180 240,200 C300,216 340,184 360,196';
+    const hiA = 'M40,199 C110,179 190,219 240,203 C300,187 340,215 360,207';
+    const hiB = 'M40,207 C110,215 190,183 240,203 C300,219 340,187 360,199';
 
     const anim = (a, b) => isAnimated
       ? `<animate attributeName="d" dur="${dur}s" repeatCount="indefinite" calcMode="spline" keyTimes="0;0.5;1" keySplines="0.42 0 0.58 1;0.42 0 0.58 1" values="${a};${b};${a}"/>`
@@ -234,7 +234,7 @@ class ZisterneCard extends HTMLElement {
 
       .tw-gauge { display: flex; justify-content: center; padding: 2px 0; }
       .tw-gauge svg { width: 300px; max-width: 100%; height: auto; }
-      .tw-water { transition: transform 1s ease-out; }
+      .tw-water { transition: transform 1s ease-out; transform-box: view-box; transform-origin: 0 0; }
       .tw-arc { transition: stroke-dasharray 1s ease-out; }
 
       .tw-volume { text-align: center; margin-top: 4px; }
@@ -302,10 +302,12 @@ class ZisterneCard extends HTMLElement {
 
             <circle cx="200" cy="200" r="132" fill="#141f33"/>
 
-            <g class="tw-water" data-ref="water" clip-path="url(#tw-wclip)">
-              <path fill="${waterColor}" opacity="0.95" d="${fillA}">${anim(fillA, fillB)}</path>
-              <path fill="none" stroke="#0b1424" stroke-width="4" opacity="0.5" d="${rimA}">${anim(rimA, rimB)}</path>
-              <path fill="none" stroke="#67b0ea" stroke-width="2.5" opacity="0.7" d="${hiA}">${anim(hiA, hiB)}</path>
+            <g clip-path="url(#tw-wclip)">
+              <g class="tw-water" data-ref="water">
+                <path fill="${waterColor}" opacity="0.95" d="${fillA}">${anim(fillA, fillB)}</path>
+                <path fill="none" stroke="#0b1424" stroke-width="4" opacity="0.5" d="${rimA}">${anim(rimA, rimB)}</path>
+                <path fill="none" stroke="#67b0ea" stroke-width="2.5" opacity="0.7" d="${hiA}">${anim(hiA, hiB)}</path>
+              </g>
             </g>
 
             <text text-anchor="middle" x="200" y="202" font-family="var(--paper-font-body1_-_font-family, -apple-system, 'Segoe UI', Roboto, sans-serif)"><tspan data-ref="percent" font-size="80" font-weight="800" fill="#f4f8fd">50</tspan><tspan font-size="30" font-weight="600" fill="#c3d4ea" dx="2" dy="-30">${cfg.unit_percent}</tspan></text>
