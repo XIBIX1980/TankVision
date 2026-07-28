@@ -1,14 +1,16 @@
 /**
- * Zisterne / TankVision Custom Card für Home Assistant
+ * TankWatch / TankVision Custom Card für Home Assistant
+ *
+ * Rundes Tacho-Design: Wasser füllt den Kreis von unten, blauer Fortschrittsbogen,
+ * große Prozentzahl in der Mitte, aktuelle Menge + max. Behältervolumen darunter,
+ * angedeuteter Sensor mit Abstandswert oberhalb des Gefässes.
  *
  * Datei nach 'config/www/zisterne-card.js' kopieren und als Lovelace-Ressource
  * einbinden (/local/zisterne-card.js). Nutzbar als:
  *   type: custom:zisterne-card   ODER   type: custom:tankvision-card
  *
- * WICHTIG (gegen das Ruckeln der Welle):
- * Die Karte baut ihre Struktur nur EINMAL auf (_build) und aktualisiert danach
- * nur noch die Werte (_apply). Dadurch wird das animierte Wellen-Element bei
- * Zustandsänderungen NICHT neu erzeugt und die Animation startet nicht dauernd neu.
+ * Aufbau erfolgt EINMALIG (_build), danach werden nur Werte aktualisiert (_apply).
+ * Dadurch startet die Wasser-Animation nicht bei jeder Zustandsänderung neu.
  */
 
 class ZisterneCard extends HTMLElement {
@@ -19,33 +21,27 @@ class ZisterneCard extends HTMLElement {
     this._refs = {};
   }
 
-  // Home Assistant übergibt die Konfiguration
   setConfig(config) {
     this._config = {
       title: 'TankWatch',
+      center_label: 'KAPAZITÄT',
       cistern_height: 200,
       card_width: '100%',
-      water_color: '#3b82f6',
+      water_color: '#2f80c9',
       animations: true,
-      waves: true,
-      wave_speed: 8, // Dauer eines Wellendurchlaufs in Sekunden (größer = ruhiger)
-      roundness: '16px',
+      wave_speed: 8,
+      roundness: '20px',
       shadow: true,
-      show_liter: true,
-      show_percent: true,
       show_diagnostics: true,
-      unit_liter: 'L',
       unit_percent: '%',
       unit_distance: 'cm',
       language: 'de',
       ...config
     };
-    // Konfiguration hat sich geändert -> Struktur beim nächsten Update neu aufbauen
     this._built = false;
     if (this._hass) this._update();
   }
 
-  // Home Assistant aktualisiert die Sensorwerte (wird sehr häufig aufgerufen)
   set hass(hass) {
     this._hass = hass;
     this._update();
@@ -53,20 +49,16 @@ class ZisterneCard extends HTMLElement {
 
   // ---- Hilfsfunktionen --------------------------------------------------
 
-  // Liest einen Zahlenwert sauber aus; null bei fehlender/ungültiger Entität
   _getNum(id) {
     if (!id || typeof id !== 'string') return null;
     const st = this._hass.states[id];
     if (!st) return null;
     const s = st.state;
-    if (s === 'unavailable' || s === 'unknown' || s === '' || s === null || s === undefined) {
-      return null;
-    }
+    if (s === 'unavailable' || s === 'unknown' || s === '' || s === null || s === undefined) return null;
     const n = parseFloat(s);
     return isNaN(n) ? null : n;
   }
 
-  // Prüft den Status einer Entität für die Diagnose-Anzeige
   _checkEntity(label, id) {
     if (!id || typeof id !== 'string') return null;
     const st = this._hass.states[id];
@@ -88,9 +80,9 @@ class ZisterneCard extends HTMLElement {
   _t() {
     const lang = this._config.language || 'de';
     return {
-      de: { title: 'Zisterne', liter: 'Liter', percent: 'Prozent', distance: 'Abstand', max_volume: 'max. Gefässvolumen', fill_level: 'Füllstand', connected: 'Verbunden', empty: 'Leer' },
-      en: { title: 'Cistern', liter: 'Liters', percent: 'Percent', distance: 'Distance', max_volume: 'Max Volume', fill_level: 'Fill Level', connected: 'Connected', empty: 'Empty' }
-    }[lang] || { title: 'Zisterne', liter: 'Liter' };
+      de: { distance: 'Abstand', liter: 'Liter', percent: 'Prozent' },
+      en: { distance: 'Distance', liter: 'Liters', percent: 'Percent' }
+    }[lang] || { distance: 'Abstand', liter: 'Liter', percent: 'Prozent' };
   }
 
   // ---- Hauptablauf ------------------------------------------------------
@@ -98,12 +90,10 @@ class ZisterneCard extends HTMLElement {
   _update() {
     if (!this._hass || !this._config) return;
 
-    // 1) Entitäten auflösen
     const sensorDistanceId = this._config.entities?.sensor_distance || this._config.sensor_distance;
     const fillLiterId = this._config.entities?.fill_liter || this._config.fill_liter;
     const fillPercentId = this._config.entities?.fill_percent || this._config.fill_percent;
 
-    // max_volume darf eine ZAHL oder ein Sensor-Name sein
     const maxVolumeConfig = this._config.entities?.max_volume ?? this._config.max_volume;
     let maxVolumeVal = 5000;
     if (typeof maxVolumeConfig === 'number') {
@@ -113,7 +103,6 @@ class ZisterneCard extends HTMLElement {
       if (v !== null) maxVolumeVal = v;
     }
 
-    // cistern_height darf Zahl oder Sensor sein
     const cisternHeightConfig = this._config.cistern_height;
     let cisternHeight = 200;
     if (typeof cisternHeightConfig === 'number') {
@@ -123,12 +112,10 @@ class ZisterneCard extends HTMLElement {
       if (v !== null) cisternHeight = v;
     }
 
-    // 2) Werte auslesen
     const distanceVal = this._getNum(sensorDistanceId);
     const fillLiterVal = this._getNum(fillLiterId);
     const fillPercentVal = this._getNum(fillPercentId);
 
-    // 3) Prozent berechnen
     let percent = 0;
     let dataSource = 'Fallback (50%)';
     let isFallback = true;
@@ -156,7 +143,6 @@ class ZisterneCard extends HTMLElement {
     const finalDistance = distanceVal !== null ? distanceVal : Math.round(cisternHeight - (percent / 100) * cisternHeight);
     const connected = !isFallback;
 
-    // 4) Diagnose
     const checks = [];
     const t = this._t();
     const cDist = this._checkEntity(t.distance, sensorDistanceId);
@@ -168,147 +154,96 @@ class ZisterneCard extends HTMLElement {
     const hasProblem = isFallback || checks.some((c) => !c.ok);
     const showDiag = this._config.show_diagnostics !== false && hasProblem;
 
-    // 5) Struktur EINMALIG aufbauen (nur wenn nötig)
     if (!this._built) {
       this._build(sensorDistanceId);
       this._built = true;
     }
 
-    // 6) Nur Werte aktualisieren (kein Neuaufbau -> Animation läuft ruhig weiter)
-    this._apply({
-      finalPercent, finalLiter, finalDistance, maxVolumeVal,
-      dataSource, connected, showDiag, checks
-    });
+    this._apply({ finalPercent, finalLiter, finalDistance, maxVolumeVal, connected, showDiag, checks });
   }
 
   // ---- Struktur (läuft nur einmal) --------------------------------------
 
   _build(sensorDistanceId) {
     const cfg = this._config;
-    const t = this._t();
     const waterColor = cfg.water_color;
     const isAnimated = cfg.animations !== false;
-    const hasWaves = cfg.waves !== false;
     const hasShadow = cfg.shadow !== false;
     const waveSpeed = Number(cfg.wave_speed) > 0 ? Number(cfg.wave_speed) : 8;
+    const dur = (waveSpeed * 0.7).toFixed(1);
+
+    // Wasseroberfläche: feste Grundhöhe (y≈200), Füllstand wird per translateY gesetzt.
+    const fillA = 'M40,198 C110,188 190,208 240,200 C300,192 340,206 360,202 L360,600 L40,600 Z';
+    const fillB = 'M40,202 C110,206 190,190 240,200 C300,208 340,192 360,198 L360,600 L40,600 Z';
+    const rimA = 'M40,198 C110,188 190,208 240,200 C300,192 340,206 360,202';
+    const rimB = 'M40,202 C110,206 190,190 240,200 C300,208 340,192 360,198';
+    const hiA = 'M40,201 C110,191 190,211 240,203 C300,195 340,209 360,205';
+    const hiB = 'M40,205 C110,209 190,193 240,203 C300,211 340,195 360,201';
+
+    const anim = (a, b) => isAnimated
+      ? `<animate attributeName="d" dur="${dur}s" repeatCount="indefinite" calcMode="spline" keyTimes="0;0.5;1" keySplines="0.42 0 0.58 1;0.42 0 0.58 1" values="${a};${b};${a}"/>`
+      : '';
 
     const style = `
       :host { display: block; width: 100%; max-width: ${cfg.card_width}; }
       .card-wrapper {
-        background-color: #1e293b;
-        border: 1px solid #334155;
+        background-color: #111a2b;
+        border: 1px solid #24314a;
         border-radius: ${cfg.roundness};
-        color: #f1f5f9;
+        color: #e8f0fb;
         font-family: var(--paper-font-body1_-_font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
         overflow: hidden;
-        transition: all 0.3s ease;
+        padding: 20px;
+        box-sizing: border-box;
         ${hasShadow ? 'box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);' : ''}
       }
-      .card-header {
-        padding: 16px 24px;
-        border-bottom: 1px solid #334155;
-        display: flex; align-items: center; justify-content: space-between;
-        background-color: rgba(15, 23, 42, 0.4);
+      .tw-header { display: flex; justify-content: space-between; align-items: center; }
+      .tw-title { font-size: 22px; font-weight: 600; letter-spacing: 0.5px; }
+      .tw-badge {
+        display: flex; align-items: center; gap: 7px;
+        background-color: rgba(16, 185, 129, 0.12);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        color: #34d399; font-size: 12px; font-weight: 600;
+        padding: 6px 11px; border-radius: 9px; white-space: nowrap;
       }
-      .card-title { font-size: 18px; font-weight: 600; margin: 0; display: flex; align-items: center; gap: 8px; }
-      .status-badge {
-        padding: 2px 8px;
-        background-color: rgba(16, 185, 129, 0.1);
-        border: 1px solid rgba(16, 185, 129, 0.2);
-        color: #10b981;
-        font-size: 10px; font-weight: bold; text-transform: uppercase;
-        border-radius: 4px; display: flex; align-items: center; gap: 6px;
-      }
-      .status-badge.disconnected {
-        background-color: rgba(239, 68, 68, 0.1);
+      .tw-badge.disconnected {
+        background-color: rgba(239, 68, 68, 0.12);
         border-color: rgba(239, 68, 68, 0.3);
-        color: #ef4444;
+        color: #f87171;
       }
-      .status-dot { width: 6px; height: 6px; border-radius: 50%; background-color: #10b981; }
-      .status-badge.disconnected .status-dot { background-color: #ef4444; }
-      .card-content {
-        padding: 24px; display: flex; flex-direction: row;
-        align-items: center; justify-content: center; gap: 32px;
+      .tw-dot { width: 7px; height: 7px; border-radius: 50%; background-color: #34d399; }
+      .tw-badge.disconnected .tw-dot { background-color: #f87171; }
+
+      .tw-sensor-wrap {
+        display: flex; flex-direction: column; align-items: center;
+        margin-top: 12px; margin-bottom: -6px;
       }
-      @media (max-width: 480px) { .card-content { flex-direction: column; } }
-      .vessel-area { position: relative; width: 192px; display: flex; flex-direction: column; align-items: center; }
-      .tank-vessel {
-        position: relative; width: 192px; height: 256px;
-        border: 4px solid #475569; background-color: rgba(15, 23, 42, 0.5);
-        border-bottom-left-radius: 24px; border-bottom-right-radius: 24px;
-        border-top-left-radius: 8px; border-top-right-radius: 8px;
-        overflow: hidden; display: flex; align-items: flex-end;
+      .tw-sensor {
+        display: flex; align-items: center; gap: 8px;
+        background-color: #16223a; border: 1px solid #2b3c5a;
+        border-radius: 10px; padding: 5px 12px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
       }
-      .sensor-mount {
-        position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
-        z-index: 5; display: flex; flex-direction: column; align-items: center;
-        gap: 3px; pointer-events: none;
-      }
-      .sensor-head {
-        display: flex; align-items: center; gap: 6px;
-        background-color: rgba(15, 23, 42, 0.9); border: 1px solid #475569;
-        border-radius: 8px; padding: 4px 9px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
-      }
-      .sensor-head svg { width: 16px; height: 16px; color: #60a5fa; flex-shrink: 0; }
-      .sensor-distance-value { font-size: 12px; font-weight: 700; color: #e2e8f0; font-family: monospace; white-space: nowrap; }
-      .sensor-pulse {
+      .tw-sensor svg { width: 17px; height: 17px; color: #67b0ea; flex-shrink: 0; }
+      .tw-sensor span { font-family: monospace; font-weight: 700; color: #dbe6f5; font-size: 14px; white-space: nowrap; }
+      .tw-pulse {
         width: 3px; height: 16px; border-radius: 2px;
-        background: linear-gradient(to bottom, rgba(96, 165, 250, 0.7), rgba(96, 165, 250, 0));
-        ${isAnimated ? 'animation: sensor-ping 2s ease-in-out infinite;' : ''}
+        background: linear-gradient(to bottom, #67b0ea, rgba(103, 176, 230, 0));
+        ${isAnimated ? 'animation: tw-ping 2s ease-in-out infinite;' : ''}
       }
-      .water-column {
-        width: 100%; position: relative;
-        transition: height 1s ease-out; height: 0%;
-        background-color: ${waterColor}; opacity: 0.85;
-      }
-      .water-column::after {
-        content: ''; position: absolute; top: 0; left: 0; right: 0;
-        height: 4px; background-color: rgba(255, 255, 255, 0.3);
-      }
-      .wave-container {
-        position: absolute; top: -16px; left: 0; width: 100%; height: 20px;
-        overflow: visible; pointer-events: none;
-      }
-      .wave-svg {
-        position: absolute; width: 220%; height: 100%; top: 0; left: -60%;
-        fill: ${waterColor};
-        will-change: transform; backface-visibility: hidden;
-        transform-origin: 50% 100%;
-        ${isAnimated ? `animation: wave-slosh ${(waveSpeed / 2).toFixed(2)}s ease-in-out infinite alternate;` : ''}
-      }
-      .percentage-label {
-        position: absolute; inset: 0; display: flex;
-        align-items: center; justify-content: center;
-        font-size: 32px; font-weight: 900; color: white;
-        text-shadow: 0 2px 4px rgba(0,0,0,0.5);
-      }
-      .stats-panel { flex: 1; display: flex; flex-direction: column; gap: 16px; width: 100%; }
-      .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      .metric-box {
-        background-color: rgba(15, 23, 42, 0.4); border: 1px solid rgba(51, 65, 85, 0.8);
-        padding: 12px; border-radius: 12px;
-      }
-      .metric-label { font-size: 12px; color: #94a3b8; }
-      .metric-value { font-size: 24px; font-weight: bold; color: white; margin-top: 4px; }
-      .metric-unit { font-size: 14px; color: #94a3b8; font-weight: normal; }
-      .sensor-mapping-box {
-        background-color: rgba(15, 23, 42, 0.2); border: 1px solid rgba(51, 65, 85, 0.5);
-        border-radius: 12px; padding: 14px;
-      }
-      .mapping-title {
-        font-size: 11px; font-weight: 600; color: #94a3b8;
-        text-transform: uppercase; letter-spacing: 1px; margin: 0 0 10px 0;
-      }
-      .mapping-row {
-        display: flex; justify-content: space-between; font-size: 12px;
-        font-family: monospace; padding: 6px 0; border-bottom: 1px solid rgba(51, 65, 85, 0.3);
-      }
-      .mapping-row:last-child { border-bottom: none; }
-      .mapping-label { color: #94a3b8; }
-      .mapping-value { color: #60a5fa; }
-      .info-row { font-size: 10px; color: #64748b; margin-top: 8px; }
+
+      .tw-gauge { display: flex; justify-content: center; padding: 2px 0; }
+      .tw-gauge svg { width: 300px; max-width: 100%; height: auto; }
+      .tw-water { transition: transform 1s ease-out; }
+      .tw-arc { transition: stroke-dasharray 1s ease-out; }
+
+      .tw-volume { text-align: center; margin-top: 4px; }
+      .tw-amount { font-size: 32px; font-weight: 700; color: #f4f8fd; }
+      .tw-maxlabel { font-size: 13px; color: #8aa0bd; margin-top: 12px; letter-spacing: 0.3px; }
+      .tw-maxval { font-size: 20px; font-weight: 600; color: #c3d4ea; margin-top: 2px; }
+
       .diag-box {
-        margin: 0 24px 24px 24px; background-color: rgba(239, 68, 68, 0.08);
+        margin-top: 16px; background-color: rgba(239, 68, 68, 0.08);
         border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 14px;
       }
       .diag-title { font-size: 12px; font-weight: 700; color: #fca5a5; margin: 0 0 8px 0; }
@@ -321,146 +256,110 @@ class ZisterneCard extends HTMLElement {
       .diag-row:last-child { border-bottom: none; }
       .diag-id { color: #e2e8f0; word-break: break-all; }
       .diag-status-ok { color: #10b981; white-space: nowrap; }
-      .diag-status-bad { color: #ef4444; white-space: nowrap; }
-      @keyframes wave-slosh {
-        from { transform: translate3d(-7%, 1px, 0) rotate(-1.1deg); }
-        to   { transform: translate3d(7%, -1px, 0) rotate(1.1deg); }
-      }
-      @keyframes sensor-ping {
-        0%, 100% { opacity: 0.35; }
-        50% { opacity: 1; }
-      }
+      .diag-status-bad { color: #f87171; white-space: nowrap; }
+
+      @keyframes tw-ping { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
     `;
 
-    const sensorMountHtml = sensorDistanceId ? `
-      <div class="sensor-mount">
-        <div class="sensor-head">
+    const sensorHtml = sensorDistanceId ? `
+      <div class="tw-sensor-wrap">
+        <div class="tw-sensor">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="6" y="3" width="12" height="7" rx="1.5"></rect>
             <path d="M9 6h6"></path>
             <path d="M8.5 13.5c2 1.6 5 1.6 7 0"></path>
             <path d="M7 16.5c3 2.2 7 2.2 10 0"></path>
           </svg>
-          <span class="sensor-distance-value" data-ref="distance">–</span>
+          <span data-ref="distance">–</span>
         </div>
-        <div class="sensor-pulse"></div>
-      </div>
-    ` : '';
-
-    const waveHtml = hasWaves ? `
-      <div class="wave-container" data-ref="wave" style="display:none;">
-        <svg class="wave-svg" viewBox="0 0 1000 120" preserveAspectRatio="none">
-          <path d="M0,60 q62.5,-30 125,0 t125,0 t125,0 t125,0 t125,0 t125,0 t125,0 t125,0 L1000,120 L0,120 Z"></path>
-        </svg>
-      </div>
-    ` : '';
-
-    const percentLabelHtml = cfg.show_percent !== false ? `
-      <div class="percentage-label" data-ref="percent-label" style="display:none;"></div>
-    ` : '';
-
-    const metricPercentHtml = cfg.show_percent !== false ? `
-      <div class="metric-box">
-        <div class="metric-label">${t.fill_level}</div>
-        <div class="metric-value"><span data-ref="metric-percent">–</span><span class="metric-unit">${cfg.unit_percent}</span></div>
-      </div>
-    ` : '';
-
-    const metricLiterHtml = cfg.show_liter !== false ? `
-      <div class="metric-box">
-        <div class="metric-label">${t.liter}</div>
-        <div class="metric-value"><span data-ref="metric-liter">–</span><span class="metric-unit">${cfg.unit_liter}</span></div>
+        <div class="tw-pulse"></div>
       </div>
     ` : '';
 
     this.shadowRoot.innerHTML = `
       <style>${style}</style>
       <div class="card-wrapper">
-        <div class="card-header">
-          <div class="card-title">
-            ${cfg.title || t.title}
-          </div>
-          <div class="status-badge" data-ref="badge">
-            <span class="status-dot"></span>
-            <span data-ref="badge-text">${t.connected}</span>
+        <div class="tw-header">
+          <div class="tw-title">${cfg.title}</div>
+          <div class="tw-badge" data-ref="badge">
+            <span class="tw-dot"></span>
+            <span data-ref="badge-text">Verbunden</span>
           </div>
         </div>
-        <div class="card-content">
-          <div class="vessel-area">
-            <div class="tank-vessel">
-              ${sensorMountHtml}
-              <div class="water-column" data-ref="water">
-                ${waveHtml}
-                ${percentLabelHtml}
-              </div>
-            </div>
-          </div>
 
-          <div class="stats-panel">
-            <div class="metric-grid">
-              ${metricPercentHtml}
-              ${metricLiterHtml}
-            </div>
+        ${sensorHtml}
 
-            <div class="sensor-mapping-box">
-              <div class="mapping-row">
-                <span class="mapping-label">${t.max_volume}</span>
-                <span class="mapping-value" data-ref="max-volume">–</span>
-              </div>
-            </div>
-          </div>
+        <div class="tw-gauge">
+          <svg viewBox="0 0 400 400" role="img">
+            <title>Füllstandsanzeige</title>
+            <defs>
+              <clipPath id="tw-wclip"><circle cx="200" cy="200" r="132"/></clipPath>
+            </defs>
+
+            <circle cx="200" cy="200" r="178" fill="none" stroke="#33456a" stroke-width="9" stroke-dasharray="1.5 6" opacity="0.55"/>
+            <circle cx="200" cy="200" r="150" pathLength="100" fill="none" stroke="#26344f" stroke-width="14" stroke-linecap="round" stroke-dasharray="75 25" transform="rotate(135 200 200)"/>
+            <circle class="tw-arc" data-ref="arc" cx="200" cy="200" r="150" pathLength="100" fill="none" stroke="${waterColor}" stroke-width="14" stroke-linecap="round" stroke-dasharray="0 100" transform="rotate(135 200 200)"/>
+
+            <circle cx="200" cy="200" r="132" fill="#141f33"/>
+
+            <g class="tw-water" data-ref="water" clip-path="url(#tw-wclip)">
+              <path fill="${waterColor}" opacity="0.95" d="${fillA}">${anim(fillA, fillB)}</path>
+              <path fill="none" stroke="#0b1424" stroke-width="4" opacity="0.5" d="${rimA}">${anim(rimA, rimB)}</path>
+              <path fill="none" stroke="#67b0ea" stroke-width="2.5" opacity="0.7" d="${hiA}">${anim(hiA, hiB)}</path>
+            </g>
+
+            <text text-anchor="middle" x="200" y="202" font-family="var(--paper-font-body1_-_font-family, -apple-system, 'Segoe UI', Roboto, sans-serif)"><tspan data-ref="percent" font-size="80" font-weight="800" fill="#f4f8fd">50</tspan><tspan font-size="30" font-weight="600" fill="#c3d4ea" dx="2" dy="-30">${cfg.unit_percent}</tspan></text>
+            <text text-anchor="middle" x="200" y="234" fill="#7f93b0" font-size="17" font-weight="600" letter-spacing="4" font-family="var(--paper-font-body1_-_font-family, -apple-system, 'Segoe UI', Roboto, sans-serif)">${cfg.center_label}</text>
+          </svg>
         </div>
+
+        <div class="tw-volume">
+          <div class="tw-amount"><span data-ref="liter">–</span> Liter</div>
+          <div class="tw-maxlabel">max. Behältervolumen</div>
+          <div class="tw-maxval"><span data-ref="maxvol">–</span> l</div>
+        </div>
+
         <div class="diag-box" data-ref="diag" style="display:none;"></div>
       </div>
     `;
 
-    // Referenzen auf die veränderlichen Elemente merken
     const q = (sel) => this.shadowRoot.querySelector(sel);
     this._refs = {
       badge: q('[data-ref="badge"]'),
       badgeText: q('[data-ref="badge-text"]'),
+      arc: q('[data-ref="arc"]'),
       water: q('[data-ref="water"]'),
-      wave: q('[data-ref="wave"]'),
-      percentLabel: q('[data-ref="percent-label"]'),
-      metricPercent: q('[data-ref="metric-percent"]'),
-      metricLiter: q('[data-ref="metric-liter"]'),
+      percent: q('[data-ref="percent"]'),
+      liter: q('[data-ref="liter"]'),
+      maxvol: q('[data-ref="maxvol"]'),
       distance: q('[data-ref="distance"]'),
-      maxVolume: q('[data-ref="max-volume"]'),
       diag: q('[data-ref="diag"]')
     };
   }
 
-  // ---- Werte aktualisieren (läuft bei jeder Änderung, ohne Neuaufbau) ----
+  // ---- Werte aktualisieren (ohne Neuaufbau) -----------------------------
 
   _apply(v) {
     const r = this._refs;
     if (!r || !r.water) return;
     const cfg = this._config;
 
-    // Wasserhöhe (sanfte Höhen-Transition, Welle bleibt unangetastet)
-    r.water.style.height = v.finalPercent + '%';
+    // Blauer Bogen: 31 % -> 31 % von 75 (der Bogen umfasst 270° = 75 der pathLength 100)
+    const fillLen = (v.finalPercent / 100) * 75;
+    r.arc.style.strokeDasharray = fillLen.toFixed(2) + ' ' + (100 - fillLen).toFixed(2);
 
-    // Welle nur zwischen 1% und 99% anzeigen
-    if (r.wave) {
-      r.wave.style.display = (v.finalPercent > 0 && v.finalPercent < 100) ? 'block' : 'none';
-    }
+    // Wasserstand: Oberfläche bei y = 332 - Anteil * 264; Gruppe wird entsprechend verschoben
+    const ty = 132 - (v.finalPercent / 100) * 264;
+    r.water.style.transform = 'translateY(' + ty.toFixed(1) + 'px)';
 
-    // Große Prozentzahl im Wasser
-    if (r.percentLabel) {
-      r.percentLabel.textContent = v.finalPercent + cfg.unit_percent;
-      r.percentLabel.style.display = (v.finalPercent >= 20) ? 'flex' : 'none';
-    }
-
-    if (r.metricPercent) r.metricPercent.textContent = v.finalPercent;
-    if (r.metricLiter) r.metricLiter.textContent = v.finalLiter.toLocaleString();
+    if (r.percent) r.percent.textContent = v.finalPercent;
+    if (r.liter) r.liter.textContent = v.finalLiter.toLocaleString();
+    if (r.maxvol) r.maxvol.textContent = v.maxVolumeVal.toLocaleString();
     if (r.distance) r.distance.textContent = v.finalDistance.toLocaleString() + ' ' + cfg.unit_distance;
-    if (r.maxVolume) r.maxVolume.textContent = v.maxVolumeVal.toLocaleString() + ' l';
 
-    // Verbindungs-Badge
     if (r.badge) r.badge.classList.toggle('disconnected', !v.connected);
     if (r.badgeText) r.badgeText.textContent = v.connected ? 'Verbunden' : 'Kein Signal';
 
-    // Diagnose-Kasten
     if (r.diag) {
       if (v.showDiag) {
         const rows = v.checks.map((c) => `
@@ -474,10 +373,7 @@ class ZisterneCard extends HTMLElement {
           : '';
         r.diag.innerHTML = `
           <div class="diag-title">⚠️ Keine gültigen Sensordaten – es werden Notwerte (50 %) angezeigt</div>
-          <div class="diag-hint">
-            Prüfe die Namen unter <b>Entwicklerwerkzeuge → Zustände</b>. Sie müssen exakt übereinstimmen.
-            "nicht gefunden" = Name falsch. "unavailable/unknown" = Gerät offline.
-          </div>
+          <div class="diag-hint">Prüfe die Namen unter <b>Entwicklerwerkzeuge → Zustände</b>. "nicht gefunden" = Name falsch, "unavailable/unknown" = Gerät offline.</div>
           ${noEntities}
           ${rows}
         `;
@@ -490,7 +386,7 @@ class ZisterneCard extends HTMLElement {
   }
 
   getCardSize() {
-    return 3;
+    return 4;
   }
 
   static getConfigElement() {
@@ -499,38 +395,35 @@ class ZisterneCard extends HTMLElement {
 
   static getStubConfig() {
     return {
-      title: 'Regenwasser-Zisterne',
+      title: 'TankWatch',
       fill_percent: '',
       fill_liter: '',
       max_volume: '',
       sensor_distance: '',
       cistern_height: 200,
       wave_speed: 8,
-      water_color: '#3b82f6',
-      animations: true,
-      waves: true
+      water_color: '#2f80c9',
+      animations: true
     };
   }
 }
 
 // ---------------------------------------------------------------------------
-// Konfigurations-Editor (GUI) – nutzt das eingebaute ha-form von Home Assistant
+// Konfigurations-Editor (GUI)
 // ---------------------------------------------------------------------------
 
 const ZISTERNE_LABELS = {
   title: 'Titel',
+  center_label: 'Text in der Mitte',
   fill_percent: 'Füllstand-Sensor (%)',
   fill_liter: 'Füllmengen-Sensor (Liter)',
   max_volume: 'Max-Volumen-Sensor (Liter)',
   sensor_distance: 'Abstands-Sensor (cm)',
   cistern_height: 'Zisternenhöhe (cm)',
   wave_speed: 'Wellen-Tempo (Sekunden)',
-  water_color: 'Wasserfarbe (Hex, z. B. #3b82f6)',
+  water_color: 'Wasserfarbe (Hex, z. B. #2f80c9)',
   animations: 'Animationen',
-  waves: 'Wellen anzeigen',
   shadow: 'Schatten',
-  show_percent: 'Prozent anzeigen',
-  show_liter: 'Liter anzeigen',
   show_diagnostics: 'Diagnose-Hinweis anzeigen'
 };
 
@@ -542,6 +435,7 @@ const ZISTERNE_HELPERS = {
 
 const ZISTERNE_SCHEMA = [
   { name: 'title', selector: { text: {} } },
+  { name: 'center_label', selector: { text: {} } },
   { name: 'fill_percent', selector: { entity: { filter: [{ domain: 'sensor' }] } } },
   { name: 'fill_liter', selector: { entity: { filter: [{ domain: 'sensor' }] } } },
   { name: 'max_volume', selector: { entity: { filter: [{ domain: 'sensor' }] } } },
@@ -554,10 +448,7 @@ const ZISTERNE_SCHEMA = [
     name: '',
     schema: [
       { name: 'animations', selector: { boolean: {} } },
-      { name: 'waves', selector: { boolean: {} } },
       { name: 'shadow', selector: { boolean: {} } },
-      { name: 'show_percent', selector: { boolean: {} } },
-      { name: 'show_liter', selector: { boolean: {} } },
       { name: 'show_diagnostics', selector: { boolean: {} } }
     ]
   }
@@ -608,7 +499,6 @@ if (!customElements.get('zisterne-card-editor')) {
   customElements.define('zisterne-card-editor', ZisterneCardEditor);
 }
 
-// Karte unter beiden Namen registrieren
 if (!customElements.get('zisterne-card')) {
   customElements.define('zisterne-card', ZisterneCard);
 }
@@ -616,11 +506,10 @@ if (!customElements.get('tankvision-card')) {
   customElements.define('tankvision-card', ZisterneCard);
 }
 
-// In der "Karte hinzufügen"-Auswahl anzeigen
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'zisterne-card',
-  name: 'Zisterne / TankVision Card',
-  description: 'Füllstandsanzeige für Zisterne oder Tank – mit grafischem Editor',
+  name: 'TankWatch / TankVision Card',
+  description: 'Runde Füllstandsanzeige für Zisterne oder Tank – mit grafischem Editor',
   preview: true
 });
