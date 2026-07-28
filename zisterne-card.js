@@ -22,7 +22,7 @@ class ZisterneCard extends HTMLElement {
   // Home Assistant übergibt die Konfiguration
   setConfig(config) {
     this._config = {
-      title: 'Regenwasserzisterne',
+      title: 'TankWatch',
       cistern_height: 200,
       card_width: '100%',
       water_color: '#3b82f6',
@@ -88,7 +88,7 @@ class ZisterneCard extends HTMLElement {
   _t() {
     const lang = this._config.language || 'de';
     return {
-      de: { title: 'Zisterne', liter: 'Liter', percent: 'Prozent', distance: 'Abstand', max_volume: 'Max. Volumen', fill_level: 'Füllstand', connected: 'Verbunden', empty: 'Leer' },
+      de: { title: 'Zisterne', liter: 'Liter', percent: 'Prozent', distance: 'Abstand', max_volume: 'max. Gefässvolumen', fill_level: 'Füllstand', connected: 'Verbunden', empty: 'Leer' },
       en: { title: 'Cistern', liter: 'Liters', percent: 'Percent', distance: 'Distance', max_volume: 'Max Volume', fill_level: 'Fill Level', connected: 'Connected', empty: 'Empty' }
     }[lang] || { title: 'Zisterne', liter: 'Liter' };
   }
@@ -270,10 +270,11 @@ class ZisterneCard extends HTMLElement {
         overflow: visible; pointer-events: none;
       }
       .wave-svg {
-        position: absolute; width: 200%; height: 100%; top: 0; left: 0;
+        position: absolute; width: 220%; height: 100%; top: 0; left: -60%;
         fill: ${waterColor};
         will-change: transform; backface-visibility: hidden;
-        ${isAnimated ? `animation: wave-movement ${waveSpeed}s linear infinite;` : ''}
+        transform-origin: 50% 100%;
+        ${isAnimated ? `animation: wave-slosh ${(waveSpeed / 2).toFixed(2)}s ease-in-out infinite alternate;` : ''}
       }
       .percentage-label {
         position: absolute; inset: 0; display: flex;
@@ -321,9 +322,9 @@ class ZisterneCard extends HTMLElement {
       .diag-id { color: #e2e8f0; word-break: break-all; }
       .diag-status-ok { color: #10b981; white-space: nowrap; }
       .diag-status-bad { color: #ef4444; white-space: nowrap; }
-      @keyframes wave-movement {
-        from { transform: translate3d(0, 0, 0); }
-        to   { transform: translate3d(-50%, 0, 0); }
+      @keyframes wave-slosh {
+        from { transform: translate3d(-7%, 1px, 0) rotate(-1.1deg); }
+        to   { transform: translate3d(7%, -1px, 0) rotate(1.1deg); }
       }
       @keyframes sensor-ping {
         0%, 100% { opacity: 0.35; }
@@ -377,9 +378,6 @@ class ZisterneCard extends HTMLElement {
       <div class="card-wrapper">
         <div class="card-header">
           <div class="card-title">
-            <svg style="width: 20px; height: 20px; color: #60a5fa;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-            </svg>
             ${cfg.title || t.title}
           </div>
           <div class="status-badge" data-ref="badge">
@@ -405,12 +403,10 @@ class ZisterneCard extends HTMLElement {
             </div>
 
             <div class="sensor-mapping-box">
-              <div class="mapping-title">Sensoren</div>
               <div class="mapping-row">
                 <span class="mapping-label">${t.max_volume}</span>
                 <span class="mapping-value" data-ref="max-volume">–</span>
               </div>
-              <div class="info-row" data-ref="data-source"></div>
             </div>
           </div>
         </div>
@@ -430,7 +426,6 @@ class ZisterneCard extends HTMLElement {
       metricLiter: q('[data-ref="metric-liter"]'),
       distance: q('[data-ref="distance"]'),
       maxVolume: q('[data-ref="max-volume"]'),
-      dataSource: q('[data-ref="data-source"]'),
       diag: q('[data-ref="diag"]')
     };
   }
@@ -459,8 +454,7 @@ class ZisterneCard extends HTMLElement {
     if (r.metricPercent) r.metricPercent.textContent = v.finalPercent;
     if (r.metricLiter) r.metricLiter.textContent = v.finalLiter.toLocaleString();
     if (r.distance) r.distance.textContent = v.finalDistance.toLocaleString() + ' ' + cfg.unit_distance;
-    if (r.maxVolume) r.maxVolume.textContent = v.maxVolumeVal.toLocaleString() + ' ' + cfg.unit_liter;
-    if (r.dataSource) r.dataSource.textContent = 'Datenquelle: ' + v.dataSource;
+    if (r.maxVolume) r.maxVolume.textContent = v.maxVolumeVal.toLocaleString() + ' l';
 
     // Verbindungs-Badge
     if (r.badge) r.badge.classList.toggle('disconnected', !v.connected);
