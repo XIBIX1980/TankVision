@@ -5,9 +5,12 @@
  * große Prozentzahl in der Mitte, aktuelle Menge + max. Behältervolumen darunter,
  * angedeuteter Sensor mit Abstandswert oberhalb des Gefässes.
  *
- * Datei nach 'config/www/zisterne-card.js' kopieren und als Lovelace-Ressource
- * einbinden (/local/zisterne-card.js). Nutzbar als:
- *   type: custom:zisterne-card   ODER   type: custom:tankvision-card
+ * Datei nach 'config/www/tankvision.js' kopieren und als Lovelace-Ressource
+ * einbinden (/local/tankvision.js). Nutzbar als:
+ *   type: custom:tankvision-card   ODER   type: custom:zisterne-card
+ *
+ * Logo: das Logo-Bild nach 'config/www/tankvision-logo.png' kopieren.
+ * Es wird automatisch statt des Titel-Textes angezeigt (Option: logo).
  *
  * Aufbau erfolgt EINMALIG (_build), danach werden nur Werte aktualisiert (_apply).
  * Dadurch startet die Wasser-Animation nicht bei jeder Zustandsänderung neu.
@@ -24,6 +27,7 @@ class ZisterneCard extends HTMLElement {
   setConfig(config) {
     this._config = {
       title: 'TankWatch',
+      logo: '/local/tankvision-logo.png',
       center_label: 'KAPAZITÄT',
       cistern_height: 200,
       card_width: '100%',
@@ -197,8 +201,9 @@ class ZisterneCard extends HTMLElement {
         box-sizing: border-box;
         ${hasShadow ? 'box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);' : ''}
       }
-      .tw-header { display: flex; justify-content: space-between; align-items: center; }
+      .tw-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
       .tw-title { font-size: 22px; font-weight: 600; letter-spacing: 0.5px; }
+      .tw-logo { height: 38px; max-width: 62%; width: auto; object-fit: contain; display: block; }
       .tw-badge {
         display: flex; align-items: center; gap: 7px;
         background-color: rgba(16, 185, 129, 0.12);
@@ -280,7 +285,9 @@ class ZisterneCard extends HTMLElement {
       <style>${style}</style>
       <div class="card-wrapper">
         <div class="tw-header">
-          <div class="tw-title">${cfg.title}</div>
+          ${cfg.logo
+            ? `<img class="tw-logo" data-ref="logo" src="${cfg.logo}" alt="${cfg.title}"><span class="tw-title" data-ref="title" style="display:none;">${cfg.title}</span>`
+            : `<span class="tw-title" data-ref="title">${cfg.title}</span>`}
           <div class="tw-badge" data-ref="badge">
             <span class="tw-dot"></span>
             <span data-ref="badge-text">Verbunden</span>
@@ -327,6 +334,8 @@ class ZisterneCard extends HTMLElement {
 
     const q = (sel) => this.shadowRoot.querySelector(sel);
     this._refs = {
+      logo: q('[data-ref="logo"]'),
+      title: q('[data-ref="title"]'),
       badge: q('[data-ref="badge"]'),
       badgeText: q('[data-ref="badge-text"]'),
       arc: q('[data-ref="arc"]'),
@@ -337,6 +346,14 @@ class ZisterneCard extends HTMLElement {
       distance: q('[data-ref="distance"]'),
       diag: q('[data-ref="diag"]')
     };
+
+    // Falls das Logo-Bild nicht geladen werden kann, den Titel-Text anzeigen
+    if (this._refs.logo) {
+      this._refs.logo.addEventListener('error', () => {
+        this._refs.logo.style.display = 'none';
+        if (this._refs.title) this._refs.title.style.display = 'inline';
+      });
+    }
   }
 
   // ---- Werte aktualisieren (ohne Neuaufbau) -----------------------------
@@ -416,6 +433,7 @@ class ZisterneCard extends HTMLElement {
 
 const ZISTERNE_LABELS = {
   title: 'Titel',
+  logo: 'Logo-Bild (URL, z. B. /local/tankvision-logo.png)',
   center_label: 'Text in der Mitte',
   fill_percent: 'Füllstand-Sensor (%)',
   fill_liter: 'Füllmengen-Sensor (Liter)',
@@ -430,6 +448,7 @@ const ZISTERNE_LABELS = {
 };
 
 const ZISTERNE_HELPERS = {
+  logo: 'Leer lassen, um stattdessen den Titel-Text anzuzeigen.',
   fill_percent: 'Beste Quelle. Wenn gesetzt, wird direkt dieser Prozentwert verwendet.',
   max_volume: 'Sensor ODER feste Zahl (feste Zahl nur per YAML).',
   cistern_height: 'Nur nötig, wenn du ausschließlich den Abstands-Sensor nutzt.'
@@ -437,6 +456,7 @@ const ZISTERNE_HELPERS = {
 
 const ZISTERNE_SCHEMA = [
   { name: 'title', selector: { text: {} } },
+  { name: 'logo', selector: { text: {} } },
   { name: 'center_label', selector: { text: {} } },
   { name: 'fill_percent', selector: { entity: { filter: [{ domain: 'sensor' }] } } },
   { name: 'fill_liter', selector: { entity: { filter: [{ domain: 'sensor' }] } } },
@@ -510,8 +530,8 @@ if (!customElements.get('tankvision-card')) {
 
 window.customCards = window.customCards || [];
 window.customCards.push({
-  type: 'zisterne-card',
-  name: 'TankWatch / TankVision Card',
+  type: 'tankvision-card',
+  name: 'TankVision Card',
   description: 'Runde Füllstandsanzeige für Zisterne oder Tank – mit grafischem Editor',
   preview: true
 });
